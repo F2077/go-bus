@@ -1,27 +1,3 @@
-# go-bus
-
-A simple event bus library for Go, built on top of [go-pubsub](https://github.com/F2077/go-pubsub).
-Ideal for application-level event dispatching (e.g. user actions, domain events), with convenient listener management and one-time handlers.
-
----
-
-## Features
-
-* 🔔 **Event-based**: Dispatch arbitrary `any` payloads keyed by typed `Event`.
-* 🔄 **Auto-unsubscribe**: One-time listeners auto-remove after first trigger.
-* 🎛️ **Listener control**: Cancelable via context.
-
----
-
-## Installation
-
-```bash
-go get github.com/F2077/go-bus
-```
-
-## Quick Start
-
-```go
 package main
 
 import (
@@ -73,14 +49,3 @@ func main() {
 	// 7. Exit gracefully
 	fmt.Println("demo complete")
 }
-```
-
-## Notes
-
-This library is built on top of go-pubsub:
-
-    It uses go-pubsub as the underlying high-performance Pub/Sub engine.
-
-    Adds application-level conveniences: typed Event, automatic unsubscription, listener context control, etc.
-
-If you need finer-grained Pub-Sub control, check out the original [go-pubsub](https://github.com/F2077/go-pubsub) library.
