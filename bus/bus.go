@@ -19,8 +19,9 @@ func NewEvent(v int) Event {
 }
 
 type Bus struct {
-	logger *slog.Logger
-	broker *pubsub.Broker[message]
+	logger    *slog.Logger
+	broker    *pubsub.Broker[message]
+	publisher *pubsub.Publisher[message] // 复用：省 Emit 时每次新建 publisher 的 uuid 分配
 }
 
 type BusOption func(*Bus)
@@ -50,6 +51,7 @@ func NewBus(option ...BusOption) (*Bus, error) {
 		return nil, err
 	}
 	b.broker = broker
+	b.publisher = pubsub.NewPublisher(broker)
 	return b, nil
 }
 
@@ -77,6 +79,9 @@ func (b *Bus) On(event Event, listener *Listener) error {
 				if !ok {
 					return
 				}
+				if listener.ctx.Err() != nil {
+					return // Cancel 后不再处理已投递消息
+				}
 				listener.listenFunc(m.payload)
 				if listener.onetime {
 					return
@@ -88,7 +93,7 @@ func (b *Bus) On(event Event, listener *Listener) error {
 }
 
 func (b *Bus) Emit(event Event, msg any) error {
-	return pubsub.NewPublisher(b.broker).Publish(event.String(), message{
+	return b.publisher.Publish(event.String(), message{
 		event:   event,
 		payload: msg,
 	})
