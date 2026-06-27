@@ -1,7 +1,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/F2077/go-bus.svg)](https://pkg.go.dev/github.com/F2077/go-bus)
 [![Go Report Card](https://goreportcard.com/badge/github.com/F2077/go-bus)](https://goreportcard.com/report/github.com/F2077/go-bus)
 [![Go Version](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![Coverage](https://img.shields.io/badge/coverage-95.7%25-brightgreen)](#performance)
+[![Coverage](https://img.shields.io/badge/coverage-96.8%25-brightgreen)](#performance)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 # go-bus
@@ -21,10 +21,10 @@ and one-shot handlers, built on top of the zero-allocation
 | | |
 |---|---|
 | 🎯 **Typed events** | Dispatch arbitrary `any` payloads keyed by a typed `Event`. |
-| ⚡ **Zero-alloc emits** | The publish hot path allocates nothing — see [Performance](#performance). |
+| ⚡ **Zero-alloc emits** | The publish hot path allocates nothing for a known event — see [Performance](#performance). |
 | 🔄 **One-shot handlers** | Listeners can auto-remove after their first trigger. |
 | 🎛️ **Context-based cancel** | Every listener owns a `context.Context`; cancel stops it cleanly. |
-| 🛡️ **Panic-safe** | A panicking listener is recovered and logged; the bus keeps running. |
+| 🛡️ **Panic-safe** | A panicking listener is recovered and logged; it keeps running on later messages. |
 | 🔌 **Thin layer** | A focused wrapper over [go-pubsub](https://github.com/F2077/go-pubsub) — no hidden runtime, no goroutine zoo to manage. |
 
 ---
@@ -166,7 +166,8 @@ _ = eventBus.On(bus.NewEvent(ConnectionDropped), once)
 ### Emitting
 
 `Emit` is non-blocking and never panics on a slow consumer — it dispatches to
-every current listener on that event. The publish path is allocation-free.
+every current listener on that event. The publish path is allocation-free for a
+known event; the first emit of a brand-new event value costs one topic slot.
 
 ```go
 _ = eventBus.Emit(bus.NewEvent(ThresholdBreached), "cpu 94%")
@@ -179,6 +180,33 @@ is where recovered listener panics land). Inject your own:
 
 ```go
 eventBus, _ := bus.NewBus(bus.WithLogger(myLogger))
+```
+
+### Lifecycle
+
+Every listener runs in its own goroutine until canceled. Stop one explicitly,
+or tear down the whole bus:
+
+```go
+listener.Cancel()  // stop one listener
+eventBus.Close()   // stop every listener at once
+```
+
+If `Cancel` (or `Close`) lands between a message leaving the channel and its
+callback, that message is discarded so cancellation takes effect at once — a
+one-shot listener can therefore fire zero times if its first message races with
+cancellation.
+
+### Capacity
+
+Each distinct `Event` value becomes a broker topic. The broker holds at most
+8192 topics by default; `Emit` to a brand-new event beyond that cap returns a
+wrapped `ErrSubscriptionCapacityExceeded`. Keep `Event` as a small set of
+semantic constants and carry high-cardinality data (user IDs, timestamps) in
+the payload. Raise the cap when you must:
+
+```go
+bus.NewBus(bus.WithCapacity(65536))
 ```
 
 ---
@@ -206,17 +234,17 @@ introspection), use [go-pubsub](https://github.com/F2077/go-pubsub) directly.
 
 ## Performance
 
-Measured with `go test -bench=. -benchmem -benchtime=1s` on an 18-core Linux
+Measured with `go test -bench=. -benchmem -benchtime=1s` on an Intel Core Ultra 5 125H
 machine, Go 1.25. Numbers are indicative — treat them as relative, not absolute.
 
 | Benchmark | Setup | ns/op | B/op | allocs/op |
 |---|---|---:|---:|---:|
-| `BenchmarkEventBus` | 1000 listeners, parallel emit | **228** | 0 | **0** |
-| `BenchmarkFanout/subs=1` | 1 listener | 236 | 0 | 0 |
-| `BenchmarkFanout/subs=10` | 10 listeners | 1,460 | 0 | 0 |
-| `BenchmarkFanout/subs=100` | 100 listeners | 5,018 | 0 | 0 |
-| `BenchmarkFanout/subs=1000` | 1000 listeners | 36,732 | 10 | 0 |
-| `BenchmarkOneTimeListener` | On + Emit + auto-remove | 5,791 | 4,128 | 20 |
+| `BenchmarkEventBus` | 1000 listeners, parallel emit | **227** | 0 | **0** |
+| `BenchmarkFanout/subs=1` | 1 listener | 221 | 0 | 0 |
+| `BenchmarkFanout/subs=10` | 10 listeners | 1,373 | 0 | 0 |
+| `BenchmarkFanout/subs=100` | 100 listeners | 4,644 | 0 | 0 |
+| `BenchmarkFanout/subs=1000` | 1000 listeners | 36,448 | 10 | 0 |
+| `BenchmarkOneTimeListener` | On + Emit + auto-remove | 6,595 | 4,142 | 20 |
 
 **Takeaways**
 

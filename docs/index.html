@@ -52,7 +52,7 @@
           A minimal <strong>in-process</strong> event bus for Go — typed events,
           cancelable listeners, one-shot handlers. Built on the zero-allocation
           <a href="https://github.com/F2077/go-pubsub" target="_blank" rel="noopener">go-pubsub</a>
-          engine. The emit hot path allocates <strong>nothing</strong>.
+          engine. The emit hot path allocates <strong>nothing</strong> for a known event; a brand-new event value costs one topic slot.
         </p>
         <div class="hero__cta reveal">
           <a class="btn btn--solid" href="#start">Get started</a>
@@ -61,7 +61,7 @@
         <div class="badges reveal" aria-label="project badges">
           <img src="https://pkg.go.dev/badge/github.com/F2077/go-bus.svg" alt="Go Reference" />
           <img src="https://goreportcard.com/badge/github.com/F2077/go-bus" alt="Go Report Card" />
-          <img src="https://img.shields.io/badge/coverage-95.7%25-brightgreen" alt="coverage 95.7%" />
+          <img src="https://img.shields.io/badge/coverage-96.8%25-brightgreen" alt="coverage 96.8%" />
           <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" />
         </div>
       </div>
@@ -127,7 +127,7 @@
       <h2 class="section-title reveal">Small surface. <span class="accent">Sharp</span> edges.</h2>
       <div class="specs__grid">
         <article class="plate reveal">
-          <span class="plate__num">228<small>ns</small></span>
+          <span class="plate__num">227<small>ns</small></span>
           <span class="plate__label">per Emit, 1000 listeners</span>
         </article>
         <article class="plate plate--accent reveal">
@@ -135,7 +135,7 @@
           <span class="plate__label">on the publish hot path</span>
         </article>
         <article class="plate reveal">
-          <span class="plate__num">95.7<small>%</small></span>
+          <span class="plate__num">96.8<small>%</small></span>
           <span class="plate__label">statement coverage</span>
         </article>
         <article class="plate reveal">
@@ -223,7 +223,7 @@ listener.<span class="f">Cancel</span>()</code></pre>
       <p class="section-kicker reveal">Surface</p>
       <h2 class="section-title reveal">The whole <span class="accent">API</span>, one screen.</h2>
       <div class="api__grid">
-        <article class="card reveal"><code class="card__sig">bus.NewBus(opts...) → (*Bus, error)</code><p>Construct a bus. <code>WithLogger</code> injects an <code>slog</code> handler.</p></article>
+        <article class="card reveal"><code class="card__sig">bus.NewBus(opts...) → (*Bus, error)</code><p>Construct a bus. <code>WithLogger</code> injects an <code>slog.Logger</code>.</p></article>
         <article class="card reveal"><code class="card__sig">bus.NewEvent(int) → Event</code><p>Wrap an integer constant into a typed event key.</p></article>
         <article class="card reveal"><code class="card__sig">(*Bus).On(Event, *Listener) → error</code><p>Subscribe a listener; one goroutine drains it until canceled.</p></article>
         <article class="card reveal"><code class="card__sig">(*Bus).Emit(Event, any) → error</code><p>Dispatch to every listener on that event. Never blocks.</p></article>
@@ -244,17 +244,17 @@ listener.<span class="f">Cancel</span>()</code></pre>
             <tr><th>Benchmark</th><th>Setup</th><th class="num">ns/op</th><th class="num">B/op</th><th class="num">allocs</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>BenchmarkEventBus</code></td><td>1000 listeners, parallel</td><td class="num">228</td><td class="num">0</td><td class="num num--zero">0</td></tr>
-            <tr><td><code>Fanout / subs=1</code></td><td>1 listener</td><td class="num">236</td><td class="num">0</td><td class="num num--zero">0</td></tr>
-            <tr><td><code>Fanout / subs=10</code></td><td>10 listeners</td><td class="num">1,460</td><td class="num">0</td><td class="num num--zero">0</td></tr>
-            <tr><td><code>Fanout / subs=100</code></td><td>100 listeners</td><td class="num">5,018</td><td class="num">0</td><td class="num num--zero">0</td></tr>
-            <tr><td><code>Fanout / subs=1000</code></td><td>1000 listeners</td><td class="num">36,732</td><td class="num">10</td><td class="num num--zero">0</td></tr>
-            <tr><td><code>OneTimeListener</code></td><td>On + Emit + remove</td><td class="num">5,791</td><td class="num">4,128</td><td class="num">20</td></tr>
+            <tr><td><code>BenchmarkEventBus</code></td><td>1000 listeners, parallel</td><td class="num">227</td><td class="num">0</td><td class="num num--zero">0</td></tr>
+            <tr><td><code>Fanout / subs=1</code></td><td>1 listener</td><td class="num">221</td><td class="num">0</td><td class="num num--zero">0</td></tr>
+            <tr><td><code>Fanout / subs=10</code></td><td>10 listeners</td><td class="num">1,373</td><td class="num">0</td><td class="num num--zero">0</td></tr>
+            <tr><td><code>Fanout / subs=100</code></td><td>100 listeners</td><td class="num">4,644</td><td class="num">0</td><td class="num num--zero">0</td></tr>
+            <tr><td><code>Fanout / subs=1000</code></td><td>1000 listeners</td><td class="num">36,448</td><td class="num">10</td><td class="num num--zero">0</td></tr>
+            <tr><td><code>OneTimeListener</code></td><td>On + Emit + remove</td><td class="num">6,595</td><td class="num">4,142</td><td class="num">20</td></tr>
           </tbody>
         </table>
       </div>
       <p class="bench__note reveal">
-        <code>go test -bench=. -benchmem -benchtime=1s</code>, Go 1.25, 18 cores. Indicative — treat as relative.
+        <code>go test -bench=. -benchmem -benchtime=1s</code>, Go 1.25, Intel Core Ultra 5 125H. Indicative — treat as relative.
         The emit path stays zero-allocation up to 1000 subscribers.
       </p>
     </section>
