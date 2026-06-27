@@ -89,22 +89,22 @@ func main() {
 
 	// 2. Define events as typed constants.
 	const (
-		UserSignedUp = iota + 1
-		OrderCreated
+		ConfigReloaded = iota + 1
+		ThresholdBreached
 	)
-	signup := bus.NewEvent(UserSignedUp)
+	reload := bus.NewEvent(ConfigReloaded)
 
 	// 3. Register a listener.
 	listener := bus.NewListener(func(msg any) {
-		fmt.Printf("Received signup: %#v\n", msg)
+		fmt.Printf("config reloaded: %#v\n", msg)
 	})
-	if err := eventBus.On(signup, listener); err != nil {
+	if err := eventBus.On(reload, listener); err != nil {
 		logger.Error("failed to subscribe", "error", err)
 		return
 	}
 
 	// 4. Emit an event.
-	if err := eventBus.Emit(signup, map[string]string{"user": "alice", "plan": "pro"}); err != nil {
+	if err := eventBus.Emit(reload, "new.yaml"); err != nil {
 		logger.Error("failed to emit", "error", err)
 	}
 
@@ -128,12 +128,12 @@ An `Event` is a named integer. Use `iota` constants to keep them tidy:
 
 ```go
 const (
-	UserSignedUp = iota + 1
-	OrderCreated
-	PasswordReset
+	ConfigReloaded = iota + 1
+	ThresholdBreached
+	ConnectionDropped
 )
 
-event := bus.NewEvent(UserSignedUp)
+event := bus.NewEvent(ConfigReloaded)
 ```
 
 ### Listening
@@ -145,7 +145,7 @@ event := bus.NewEvent(UserSignedUp)
 listener := bus.NewListener(func(msg any) {
 	// handle msg
 })
-_ = eventBus.On(bus.NewEvent(OrderCreated), listener)
+_ = eventBus.On(bus.NewEvent(ThresholdBreached), listener)
 
 // ...later, stop receiving:
 listener.Cancel()
@@ -158,9 +158,9 @@ auto-removes — handy for "do this on the first occurrence":
 
 ```go
 once := bus.NewListener(func(msg any) {
-	fmt.Println("first connection seen")
+	fmt.Println("first connection dropped — paging on-call")
 }, bus.WithOnetime(true))
-_ = eventBus.On(bus.NewEvent(1), once)
+_ = eventBus.On(bus.NewEvent(ConnectionDropped), once)
 ```
 
 ### Emitting
@@ -169,7 +169,7 @@ _ = eventBus.On(bus.NewEvent(1), once)
 every current listener on that event. The publish path is allocation-free.
 
 ```go
-_ = eventBus.Emit(bus.NewEvent(OrderCreated), order)
+_ = eventBus.Emit(bus.NewEvent(ThresholdBreached), "cpu 94%")
 ```
 
 ### Custom logger
