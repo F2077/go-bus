@@ -1,5 +1,9 @@
 github.com/F2077/go-pubsub v1.0.0 h1:jSnfrtUca0d4BA+se2XQR82bF6BDsxNhfVznMFQLmtQ=
 github.com/F2077/go-pubsub v1.0.0/go.mod h1:qdGGBBFMLGHIGd7YUfUt1an6fUruO9YmxKr+egVruKI=
+github.com/F2077/go-pubsub v1.1.1 h1:H3+1CX0/VoEMOx286J+xsFuKsdvzjL3+F4Rp81TvRbg=
+github.com/F2077/go-pubsub v1.1.1/go.mod h1:M8shKQu9zYhFuaiMIT4g3GiI+xjPbygkbdqA7wOA5D0=
+github.com/F2077/go-pubsub v1.2.0 h1:H62PDTbebQRxKoIUDIz5bkYhSt0aeO9BkqqPeaING8k=
+github.com/F2077/go-pubsub v1.2.0/go.mod h1:M8shKQu9zYhFuaiMIT4g3GiI+xjPbygkbdqA7wOA5D0=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

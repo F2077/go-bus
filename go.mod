@@ -1,9 +1,9 @@
 module github.com/F2077/go-bus
 
-go 1.21
+go 1.25.0
 
 require (
-	github.com/F2077/go-pubsub v1.0.0
+	github.com/F2077/go-pubsub v1.2.0
 	github.com/stretchr/testify v1.10.0
 )
 
