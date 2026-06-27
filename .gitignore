@@ -24,3 +24,9 @@ go.work.sum
 # env file
 .env
 .idea
+
+# Profiling artifacts
+.profile/
+
+# Coverage HTML
+cover.html
