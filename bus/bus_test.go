@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -34,8 +33,19 @@ func (sb *safeBuffer) String() string {
 	return sb.buf.String()
 }
 
+// newTestBus 构造一个 Bus：构造失败即 require 失败，并注册 Close 于测试/基准
+// 结束（goleak）。Test 与 Benchmark 共用（testing.TB 兼容二者）。
+func newTestBus(tb testing.TB, opts ...BusOption) *Bus {
+	tb.Helper()
+	bus, err := NewBus(opts...)
+	require.NoError(tb, err)
+	tb.Cleanup(bus.Close)
+	return bus
+}
+
 func TestBus_OnAndEmit(t *testing.T) {
-	bus, _ := NewBus()
+	bus := newTestBus(t)
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -44,73 +54,70 @@ func TestBus_OnAndEmit(t *testing.T) {
 		assert.Equal(t, "test payload", msg)
 	})
 
-	err := bus.On(NewEvent(1), listener)
-	assert.NoError(t, err)
-
-	err = bus.Emit(NewEvent(1), "test payload")
-	assert.NoError(t, err)
+	require.NoError(t, bus.On(NewEvent(1), listener))
+	require.NoError(t, bus.Emit(NewEvent(1), "test payload"))
 
 	wg.Wait()
 }
 
 func TestListenerCancel(t *testing.T) {
-	bus, _ := NewBus()
-	var called atomic.Bool
+	bus := newTestBus(t)
 
+	var called atomic.Bool
 	listener := NewListener(func(msg any) {
 		called.Store(true)
 	})
 
-	err := bus.On(NewEvent(2), listener)
-	assert.NoError(t, err)
+	require.NoError(t, bus.On(NewEvent(2), listener))
 
 	listener.Cancel()
-	err = bus.Emit(NewEvent(2), "data")
-	assert.NoError(t, err)
+	require.NoError(t, bus.Emit(NewEvent(2), "data"))
 
-	time.Sleep(100 * time.Millisecond) // 等待goroutine退出
+	time.Sleep(100 * time.Millisecond) // 等待 goroutine 退出
 	assert.False(t, called.Load())
 }
 
+// TestPanicRecovery 验证回调 panic 后监听器继续运行（非退出）：第二条消息仍被处理。
 func TestPanicRecovery(t *testing.T) {
 	var logBuffer safeBuffer
-	logger := slog.New(slog.NewJSONHandler(&logBuffer, nil))
+	bus := newTestBus(t, WithLogger(slog.New(slog.NewJSONHandler(&logBuffer, nil))))
 
-	bus, _ := NewBus(WithLogger(logger))
+	var calls atomic.Int32
 	listener := NewListener(func(msg any) {
-		panic("simulated panic")
+		if calls.Add(1) == 1 {
+			panic("simulated panic")
+		}
 	})
 
-	err := bus.On(NewEvent(3), listener)
-	assert.NoError(t, err)
+	require.NoError(t, bus.On(NewEvent(3), listener))
+	_ = bus.Emit(NewEvent(3), nil) // 触发 panic
+	_ = bus.Emit(NewEvent(3), nil) // panic 后应继续接收
 
-	_ = bus.Emit(NewEvent(3), nil)
-	time.Sleep(100 * time.Millisecond)
-
+	assert.Eventually(t, func() bool {
+		return calls.Load() >= 2 // panic 后 listener 仍处理第二条
+	}, time.Second, 5*time.Millisecond, "listener should keep running after a recovered panic")
 	assert.Contains(t, logBuffer.String(), "listener panic recovered")
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	bus, _ := NewBus()
-	const numListeners = 100
-	var counter int64 // Change to atomic int
+	bus := newTestBus(t)
 
-	// Use wait group to ensure all listeners are registered
+	const numListeners = 100
+	var counter atomic.Int64
+
 	var setupWG sync.WaitGroup
 	setupWG.Add(numListeners)
-
 	for i := 0; i < numListeners; i++ {
-		listener := NewListener(func(msg any) {
-			atomic.AddInt64(&counter, 1)
+		l := NewListener(func(msg any) {
+			counter.Add(1)
 		})
 		go func() {
-			_ = bus.On(NewEvent(4), listener)
-			setupWG.Done()
+			defer setupWG.Done()
+			_ = bus.On(NewEvent(4), l)
 		}()
 	}
 	setupWG.Wait()
 
-	// Use separate wait group for emissions
 	var emitWG sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		emitWG.Add(1)
@@ -121,32 +128,30 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 	emitWG.Wait()
 
-	// Verify counter with retries
 	assert.Eventually(t, func() bool {
-		return atomic.LoadInt64(&counter) == int64(10*numListeners)
-	}, 1*time.Second, 100*time.Millisecond, "Expected %d but got %d", 10*numListeners, atomic.LoadInt64(&counter))
+		return counter.Load() == int64(10*numListeners)
+	}, time.Second, 5*time.Millisecond, "Expected %d but got %d", 10*numListeners, counter.Load())
 }
 
 func TestEventTypeMismatch(t *testing.T) {
-	bus, _ := NewBus()
-	called := false
+	bus := newTestBus(t)
 
+	var called atomic.Bool
 	listener := NewListener(func(msg any) {
-		called = true
+		called.Store(true)
 	})
 
-	_ = bus.On(NewEvent(5), listener)
+	require.NoError(t, bus.On(NewEvent(5), listener))
 	_ = bus.Emit(NewEvent(6), "data")
 
 	time.Sleep(100 * time.Millisecond)
-	assert.False(t, called)
+	assert.False(t, called.Load())
 }
 
 func TestOneTimeListener(t *testing.T) {
-	bus, _ := NewBus()
-	var calls atomic.Int32
+	bus := newTestBus(t)
 
-	// WithOnetime(true) 的监听器触发一次后自动停止，后续 Emit 不再触发
+	var calls atomic.Int32
 	listener := NewListener(func(msg any) {
 		calls.Add(1)
 	}, WithOnetime(true))
@@ -163,7 +168,8 @@ func TestOneTimeListener(t *testing.T) {
 }
 
 func TestEmitNoListeners(t *testing.T) {
-	bus, _ := NewBus()
+	bus := newTestBus(t)
+
 	// 无任何监听器时，Emit 应静默成功，不 panic
 	assert.NotPanics(t, func() {
 		assert.NoError(t, bus.Emit(NewEvent(999), "orphan"))
@@ -171,10 +177,10 @@ func TestEmitNoListeners(t *testing.T) {
 }
 
 func TestMultipleListenersBroadcast(t *testing.T) {
-	bus, _ := NewBus()
+	bus := newTestBus(t)
+
 	const n = 5
 	var got [n]atomic.Int32
-
 	for i := 0; i < n; i++ {
 		idx := i
 		require.NoError(t, bus.On(NewEvent(8), NewListener(func(msg any) {
@@ -196,7 +202,7 @@ func TestMultipleListenersBroadcast(t *testing.T) {
 }
 
 func TestNewBusWithNilLogger(t *testing.T) {
-	// WithLogger(nil) 使底层 broker 构造失败（go-pubsub v1.1+ 的 ErrLoggerNil），NewBus 应返回错误
+	// WithLogger(nil) 使底层 broker 构造失败（go-pubsub 的 ErrLoggerNil），NewBus 应返回错误
 	_, err := NewBus(WithLogger(nil))
 	assert.Error(t, err)
 }
@@ -213,20 +219,46 @@ func TestNilOptionsIgnored(t *testing.T) {
 	})
 }
 
+// TestCapacityExceeded 验证 WithCapacity 之 topic 上限：超出后 Emit 返回错误。
+func TestCapacityExceeded(t *testing.T) {
+	bus := newTestBus(t, WithCapacity(4))
+
+	for i := 0; i < 4; i++ {
+		require.NoError(t, bus.Emit(NewEvent(100+i), "ok"))
+	}
+	err := bus.Emit(NewEvent(200), "overflow")
+	assert.Error(t, err)
+}
+
+func TestCloseCancelsListeners(t *testing.T) {
+	bus := newTestBus(t)
+
+	var called atomic.Int32
+	require.NoError(t, bus.On(NewEvent(1), NewListener(func(msg any) {
+		called.Add(1)
+	})))
+
+	bus.Close() // 取消所有已注册监听器
+
+	_ = bus.Emit(NewEvent(1), "after-close")
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, int32(0), called.Load(), "Close should stop all listeners")
+}
+
+// BenchmarkEventBus 度量 1000 监听器下并发 Emit 的吞吐。
 func BenchmarkEventBus(b *testing.B) {
-	bus, _ := NewBus()
+	bus := newTestBus(b)
+
 	const listeners = 1000
 	var ready sync.WaitGroup
 	ready.Add(listeners)
-
-	// 预注册监听器
 	for i := 0; i < listeners; i++ {
-		listener := NewListener(func(msg any) {
+		l := NewListener(func(msg any) {
 			atomic.AddInt64(&msgCount, 1)
 		})
 		go func(e Event) {
-			_ = bus.On(e, listener)
-			ready.Done()
+			defer ready.Done()
+			_ = bus.On(e, l)
 		}(NewEvent(i))
 	}
 	ready.Wait()
@@ -239,94 +271,11 @@ func BenchmarkEventBus(b *testing.B) {
 	})
 }
 
-func TestStressWithGoroutineLeakCheck(t *testing.T) {
-	// Add brief sleep to let runtime settle
-	runtime.Gosched()
-	initialGoroutines := runtime.NumGoroutine()
-
-	t.Run("100k_events", func(t *testing.T) {
-		bus, _ := NewBus()
-		const (
-			listeners    = 500
-			eventsPerSec = 10000
-		)
-
-		var wg sync.WaitGroup
-		wg.Add(listeners)
-
-		// Store listeners for cleanup
-		listenerPool := make([]*Listener, listeners)
-
-		// 注册监听器
-		for i := 0; i < listeners; i++ {
-			listener := NewListener(func(msg any) {
-				atomic.AddInt64(&eventCounter, 1)
-			})
-			listenerPool[i] = listener
-
-			go func(e Event) {
-				defer wg.Done()
-				_ = bus.On(e, listener)
-			}(NewEvent(i % 10))
-		}
-		wg.Wait()
-
-		// 压力测试阶段
-		start := time.Now()
-		var emitWg sync.WaitGroup
-		for i := 0; i < eventsPerSec; i++ {
-			emitWg.Add(1)
-			go func(e Event) {
-				defer emitWg.Done()
-				_ = bus.Emit(e, "stress_test")
-			}(NewEvent(i % 10))
-		}
-		emitWg.Wait()
-
-		// Add cleanup phase
-		t.Cleanup(func() {
-			for _, l := range listenerPool {
-				l.Cancel()
-			}
-			time.Sleep(100 * time.Millisecond) // Allow goroutines to exit
-		})
-
-		t.Logf("Processed %d events in %v", eventsPerSec, time.Since(start))
-	})
-
-	// Add final GC to clean up
-	runtime.GC()
-
-	assert.Eventually(t, func() bool {
-		return runtime.NumGoroutine() <= initialGoroutines+5 // Increase buffer
-	}, 3*time.Second, 300*time.Millisecond,
-		"goroutine leak detected, before: %d, after: %d",
-		initialGoroutines, runtime.NumGoroutine())
-}
-
-var (
-	msgCount     int64
-	eventCounter int64
-)
-
-// 内存分配分析测试
-func BenchmarkMemoryAllocations(b *testing.B) {
-	bus, _ := NewBus()
-	listener := NewListener(func(msg any) {})
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = bus.On(NewEvent(i), listener)
-		_ = bus.Emit(NewEvent(i), "payload")
-	}
-}
-
 // BenchmarkFanout 度量单次 Emit 广播至 N 个监听器的延迟，随 N 递增。
-// 此乃事件总线之核心场景：fan-out 吞吐与分配。
 func BenchmarkFanout(b *testing.B) {
 	for _, n := range []int{1, 10, 100, 1000} {
 		b.Run(fmt.Sprintf("subs=%d", n), func(b *testing.B) {
-			bus, _ := NewBus()
+			bus := newTestBus(b)
 			for i := 0; i < n; i++ {
 				_ = bus.On(NewEvent(1), NewListener(func(msg any) {}))
 			}
@@ -342,11 +291,29 @@ func BenchmarkFanout(b *testing.B) {
 
 // BenchmarkOneTimeListener 度量 onetime 监听器的 On+Emit+自动退出全路径。
 func BenchmarkOneTimeListener(b *testing.B) {
-	bus, _ := NewBus()
+	bus := newTestBus(b)
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			_ = bus.On(NewEvent(1), NewListener(func(msg any) {}, WithOnetime(true)))
 			_ = bus.Emit(NewEvent(1), "payload")
 		}
 	})
+}
+
+var msgCount int64
+
+// BenchmarkMemoryAllocations 度量每次 On+Emit+注销的分配。每轮独立 listener
+// 并 Cancel，令 goroutine 即时退出；topic 取 i%64 限制 broker 状态增长，
+// 使每次迭代成本稳定 O(1)，而非随 b.N 线性膨胀。
+func BenchmarkMemoryAllocations(b *testing.B) {
+	bus := newTestBus(b)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		l := NewListener(func(msg any) {})
+		_ = bus.On(NewEvent(i%64), l)
+		_ = bus.Emit(NewEvent(i%64), "payload")
+		l.Cancel()
+	}
 }

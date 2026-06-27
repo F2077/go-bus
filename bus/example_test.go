@@ -13,6 +13,7 @@ func ExampleNewBus() {
 	if err != nil {
 		panic(err)
 	}
+	defer eventBus.Close()
 	fmt.Println(eventBus != nil)
 	// Output: true
 }
@@ -22,8 +23,9 @@ func ExampleNewBus() {
 // funnelling the callback through a channel.
 func ExampleBus_On() {
 	eventBus, _ := bus.NewBus()
-	received := make(chan any, 1)
+	defer eventBus.Close()
 
+	received := make(chan any, 1)
 	listener := bus.NewListener(func(msg any) {
 		received <- msg
 	})
@@ -35,17 +37,17 @@ func ExampleBus_On() {
 	}
 
 	fmt.Println(<-received)
-	listener.Cancel()
 	// Output: hello
 }
 
-// ExampleBus_oneTimeListener shows a one-time listener: it fires on the first
-// matching event and then auto-removes, so subsequent emits on the same event
-// are ignored.
-func ExampleBus_oneTimeListener() {
+// ExampleWithOnetime shows a one-time listener: it fires on the first matching
+// event and then auto-removes, so subsequent emits on the same event are
+// ignored.
+func ExampleWithOnetime() {
 	eventBus, _ := bus.NewBus()
-	received := make(chan any, 2)
+	defer eventBus.Close()
 
+	received := make(chan any, 2)
 	listener := bus.NewListener(func(msg any) {
 		received <- msg
 	}, bus.WithOnetime(true))
